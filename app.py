@@ -172,16 +172,17 @@ def estado_servidor():
     return {
         'activo': False, 'fase': 'espera', 'jugadores': [], 'impostores': [],
         'palabra': "", 'pista': "", 'vistos': [], 'quien_empieza': "",
-        'start_time': None, 'votos': {}, 'eliminados': [], 'ultimo_expulsado': ""
+        'start_time': None, 'votos': {}, 'eliminados': [], 'ultimo_expulsado': "",
+        'rol_expulsado': ""
     }
 
 server = estado_servidor()
 
 with st.sidebar:
-    st.header("👑 Host")
-    soy_host = st.checkbox("Modo Host")
+    st.header("👑 Panel del Host")
+    soy_host = st.checkbox("Activar modo Host")
     if soy_host and st.button("🔴 REINICIAR TODO"):
-        server.update({'activo': False, 'fase': 'espera', 'vistos': [], 'votos': {}, 'eliminados': [], 'ultimo_expulsado': ""})
+        server.update({'activo': False, 'fase': 'espera', 'vistos': [], 'votos': {}, 'eliminados': [], 'ultimo_expulsado': "", 'rol_expulsado': ""})
         st.rerun()
 
 st.title("🕵️ Juego del Impostor")
@@ -189,11 +190,11 @@ st.title("🕵️ Juego del Impostor")
 # 1. ESPERA / CONFIG
 if not server['activo']:
     if soy_host:
-        nombres = st.text_area("Participantes:", "Juan, Maria, Pedro, Luis, Ana")
-        num_imp = st.slider("Número de impostores", 1, 3, 1) # Aumentado a 3
+        nombres = st.text_area("Participantes (separados por coma):", "Juan, Maria, Pedro, Luis, Ana")
+        num_imp = st.slider("Número de impostores", 1, 3, 1)
         if st.button("🚀 LANZAR PARTIDA"):
             lista = [n.strip() for n in nombres.split(",") if n.strip()]
-            if len(lista) < 4: st.error("Mínimo 4 jugadores para 3 impostores.")
+            if len(lista) < 3: st.error("Mínimo 3 jugadores.")
             else:
                 item = random.choice(DATABASE)
                 server.update({
@@ -204,109 +205,115 @@ if not server['activo']:
                 })
                 st.rerun()
     else:
-        st.info("Esperando al Host...")
-        time.sleep(3); st.rerun()
+        st.info("⌛ Esperando a que el Host inicie la partida...")
+        st.image("https://media.giphy.com/media/uIJBFZoOaifHf52MER/giphy.gif")
+        time.sleep(2); st.rerun()
 
-# 2. REVELAR
+# 2. REVELAR ROL
 elif server['fase'] == 'revelar':
     with st.form("revelar"):
-        nombre = st.text_input("Tu nombre:").strip()
-        if st.form_submit_button("Ver Rol"):
+        nombre = st.text_input("Tu nombre exacto:").strip()
+        if st.form_submit_button("Ver mi rol"):
             if nombre in server['jugadores'] and nombre not in server['vistos']:
-                if nombre in server['impostores']: st.error(f"IMPOSTOR 😈 - Pista: {server['pista']}")
-                else: st.success(f"CIVIL 😊 - Palabra: {server['palabra']}")
+                if nombre in server['impostores']: st.error(f"ERES EL IMPOSTOR 😈 - Pista: {server['pista']}")
+                else: st.success(f"ERES CIVIL 😊 - Palabra: {server['palabra']}")
                 server['vistos'].append(nombre)
-            elif nombre in server['vistos']: st.warning("Ya lo viste.")
+            elif nombre in server['vistos']: st.warning("Ya viste tu rol.")
     
-    st.write(f"Listos: {len(server['vistos'])}/{len(server['jugadores'])}")
+    st.write(f"Jugadores listos: {len(server['vistos'])} / {len(server['jugadores'])}")
     if soy_host and len(server['vistos']) >= len(server['jugadores']):
-        if st.button("Siguiente: ¿Quién empieza?"):
+        if st.button("Siguiente: ¿Quién empieza? 🎲"):
             server['quien_empieza'] = random.choice(server['jugadores'])
             server['fase'] = 'debate'; st.rerun()
-    else: time.sleep(3); st.rerun()
+    else: time.sleep(2); st.rerun()
 
 # 3. DEBATE
 elif server['fase'] == 'debate':
     if server['ultimo_expulsado']:
-        st.warning(f"💀 El último expulsado fue: {server['ultimo_expulsado']}")
+        st.warning(f"💀 Expulsado anterior: {server['ultimo_expulsado']} era {server['rol_expulsado']}")
     st.success(f"🎤 Turno de: **{server['quien_empieza']}**")
     if soy_host and st.button("Iniciar Temporizador de Votación 🗳️"):
-        server['votos'] = {} # Limpiar votos anteriores
+        server['votos'] = {} 
         server['fase'] = 'votacion'; server['start_time'] = time.time(); st.rerun()
-    else: time.sleep(4); st.rerun()
+    else: time.sleep(3); st.rerun()
 
 # 4. TEMPORIZADOR
 elif server['fase'] == 'votacion':
     restante = int((5*60) - (time.time() - server['start_time']))
     if restante > 0:
         st.metric("Tiempo de debate", f"{restante//60:02d}:{restante%60:02d}")
-        if soy_host and st.button("Ir a Votación Ahora"):
+        if soy_host and st.button("Abrir Votaciones Ahora 🗳️"):
             server['fase'] = 'urnas'; st.rerun()
         time.sleep(2); st.rerun()
     else:
         st.error("¡TIEMPO AGOTADO!")
-        if soy_host and st.button("Abrir Votaciones"):
+        if soy_host and st.button("Abrir Votaciones 🗳️"):
             server['fase'] = 'urnas'; st.rerun()
+        else: time.sleep(2); st.rerun()
 
 # 5. URNAS (VOTACIÓN)
 elif server['fase'] == 'urnas':
     st.header("🗳️ ¡Vota al Impostor!")
     vivos = [j for j in server['jugadores'] if j not in server['eliminados']]
-    nombre_vota = st.selectbox("¿Quién eres?", ["---"] + vivos)
+    nombre_vota = st.selectbox("Busca tu nombre:", ["---"] + vivos)
     
     if nombre_vota != "---":
         if nombre_vota in server['votos']:
-            st.info(f"Votaste por: {server['votos'][nombre_vota]}")
+            st.info(f"Has votado por: {server['votos'][nombre_vota]}")
         else:
-            acusado = st.radio("¿A quién acusas?", [j for j in vivos if j != nombre_vota] + ["Saltar Voto"])
-            if st.button("Confirmar Voto"):
+            acusado = st.radio("¿Quién es el impostor?", [j for j in vivos if j != nombre_vota] + ["Saltar Voto"])
+            if st.button("Confirmar Voto Secreto"):
                 server['votos'][nombre_vota] = acusado
                 st.rerun()
 
-    st.write(f"Votos: {len(server['votos'])} / {len(vivos)}")
+    st.write(f"Votos emitidos: {len(server['votos'])} / {len(vivos)}")
     
-    if len(server['votos']) >= len(vivos):
-        if st.button("Ver Resultado de esta ronda"):
+    if soy_host:
+        if st.button("Procesar Votos y Ver Resultado 📊"):
+            votos_reales = [v for v in server['votos'].values() if v != "Saltar Voto"]
+            if not votos_reales:
+                server['ultimo_expulsado'] = "Nadie"; server['rol_expulsado'] = "N/A"
+            else:
+                conteo = Counter(votos_reales)
+                exp = conteo.most_common(1)[0][0]
+                server['eliminados'].append(exp)
+                server['ultimo_expulsado'] = exp
+                server['rol_expulsado'] = "IMPOSTOR 😈" if exp in server['impostores'] else "CIVIL 😊"
             server['fase'] = 'resultados_ronda'; st.rerun()
-    else: time.sleep(3); st.rerun()
-
-# 6. RESULTADOS DE RONDA
-elif server['fase'] == 'resultados_ronda':
-    st.header("📊 Resultado de la Votación")
-    votos_reales = [v for v in server['votos'].values() if v != "Saltar Voto"]
-    
-    if not votos_reales:
-        st.write("Se saltó la votación. Nadie fue expulsado.")
-        server['ultimo_expulsado'] = "Nadie (Voto saltado)"
     else:
-        conteo = Counter(votos_reales)
-        expulsado = conteo.most_common(1)[0][0]
-        server['eliminados'].append(expulsado)
-        rol = "IMPOSTOR 😈" if expulsado in server['impostores'] else "CIVIL 😊"
-        server['ultimo_expulsado'] = f"{expulsado} ({rol})"
-        st.subheader(f"El más votado fue: **{expulsado}**")
-        st.write(f"Identidad revelada: **{rol}**")
+        st.info("⌛ Esperando a que el Host cierre las urnas...")
+        time.sleep(2); st.rerun()
+
+# 6. RESULTADOS DE RONDA (CONTROLADO POR HOST)
+elif server['fase'] == 'resultados_ronda':
+    st.header("📊 Resultado de la Expulsión")
+    if server['ultimo_expulsado'] == "Nadie":
+        st.write("La votación fue saltada. Nadie abandona la partida.")
+    else:
+        st.subheader(f"El más votado fue: **{server['ultimo_expulsado']}**")
+        st.markdown(f"### Identidad: **{server['rol_expulsado']}**")
     
     if soy_host:
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Siguiente Ronda de Debate 🗣️"):
+            if st.button("Nueva Ronda de Debate 🗣️"):
                 vivos = [j for j in server['jugadores'] if j not in server['eliminados']]
-                server['quien_empieza'] = random.choice(vivos)
-                server['fase'] = 'debate'; st.rerun()
+                if vivos:
+                    server['quien_empieza'] = random.choice(vivos)
+                    server['fase'] = 'debate'; st.rerun()
         with col2:
             if st.button("Terminar Partida 🏁"):
                 server['fase'] = 'final'; st.rerun()
     else:
-        st.info("Esperando que el Host decida si hay otra ronda...")
-        time.sleep(4); st.rerun()
+        st.info("⌛ Esperando instrucciones del Host...")
+        time.sleep(3); st.rerun()
 
 # 7. FINAL
 elif server['fase'] == 'final':
     st.header("🏆 Fin de la Partida")
-    st.write(f"Impostores originales: {', '.join(server['impostores'])}")
-    st.write(f"La palabra era: **{server['palabra']}**")
-    st.write("### Historial de eliminados:")
+    st.write(f"Impostores originales: **{', '.join(server['impostores'])}**")
+    st.write(f"La palabra secreta era: **{server['palabra']}**")
+    st.write("### Historial de expulsados:")
     for e in server['eliminados']:
         r = "Impostor" if e in server['impostores'] else "Civil"
         st.write(f"- {e} ({r})")
