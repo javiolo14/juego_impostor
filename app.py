@@ -1,6 +1,16 @@
 import streamlit as st
 import random
+import time
 
+if 'juego' not in st.session_state:
+    st.session_state.juego = {
+        'fase': 'config',
+        'jugadores': [],
+        'impostores': [],
+        'palabra': "",
+        'pista': "",
+        'vistos': set() # Aquí guardamos quién ya miró su rol
+    }
 # --- BASE DE DATOS DE EJEMPLO (ESTRUCTURA PARA 150 PALABRAS) ---
 DATABASE = [
     # --- DEPORTES (30) ---
@@ -164,81 +174,78 @@ DATABASE = [
     {"palabra": "Escalera", "pista": "Peldaño", "cat": "Objetos"}
 ]
 
-# --- ESTADO GLOBAL DEL JUEGO ---
-if 'juego' not in st.session_state:
-    st.session_state.juego = {
-        'fase': 'config',
-        'jugadores': [],
-        'impostores': [],
-        'palabra': "",
-        'pista': "",
-        'turno_inicial': ""
-    }
+st.title("🕵️ Juego del Impostor")
 
-# --- FUNCIONES ---
-def iniciar_partida(nombres_str, n_impostores):
-    lista = [n.strip() for n in nombres_str.split(",") if n.strip()]
-    if len(lista) < 3:
-        st.error("Mínimo 3 jugadores")
-        return
-    
-    seleccion = random.choice(DATABASE)
-    imps = random.sample(lista, n_impostores)
-    
-    st.session_state.juego.update({
-        'fase': 'jugando',
-        'jugadores': lista,
-        'impostores': imps,
-        'palabra': seleccion['palabra'],
-        'pista': seleccion['pista'],
-        'turno_inicial': random.choice(lista)
-    })
-
-# --- INTERFAZ ---
-st.set_page_config(page_title="Impostor Game", page_icon="🕵️")
-
+# --- FASE 1: CONFIGURACIÓN ---
 if st.session_state.juego['fase'] == 'config':
-    st.header("⚙️ Configuración")
-    nombres = st.text_area("Nombres (separados por coma):", "Alex, Juan, Sofia, Maria")
-    num_imp = st.number_input("Número de Impostores", 1, 5, 1)
+    nombres = st.text_area("Nombres de participantes (separados por coma):")
+    num_imp = st.slider("Cantidad de impostores", 1, 3, 1)
     
-    if st.button("Generar Roles"):
-        iniciar_partida(nombres, num_imp)
-        st.rerun()
+    if st.button("Generar Partida"):
+        lista = [n.strip() for n in nombres.split(",") if n.strip()]
+        if len(lista) < 3:
+            st.error("Mínimo 3 personas")
+        else:
+            item = random.choice(DATABASE)
+            st.session_state.juego.update({
+                'fase': 'revelar',
+                'jugadores': lista,
+                'impostores': random.sample(lista, num_imp),
+                'palabra': item['palabra'],
+                'pista': item['pista'],
+                'vistos': set()
+            })
+            st.rerun()
 
-elif st.session_state.juego['fase'] == 'jugando':
-    st.header("🎮 Partida en curso")
-    st.info(f"Empieza hablando: **{st.session_state.juego['turno_inicial']}**")
+# --- FASE 2: REVELAR ROL (CON BLOQUEO) ---
+elif st.session_state.juego['fase'] == 'revelar':
+    st.header("🔑 Revelar Identidad")
+    st.write("Cada uno debe poner su nombre para ver su palabra. ¡Solo puedes hacerlo una vez!")
     
-    # Revelar información
-    nombre_sel = st.selectbox("Busca tu nombre:", ["---"] + st.session_state.juego['jugadores'])
+    nombre_input = st.text_input("Escribe tu nombre exactamente como se anotó:").strip()
     
-    if nombre_sel != "---":
-        with st.expander("Pulsa para ver tu palabra/pista"):
-            if nombre_sel in st.session_state.juego['impostores']:
-                st.error(f"ERES EL IMPOSTOR 😈")
-                st.write(f"Pista del tema: **{st.session_state.juego['pista']}**")
+    if st.button("Ver mi rol"):
+        if nombre_input not in st.session_state.juego['jugadores']:
+            st.warning("Ese nombre no está en la lista de participantes.")
+        elif nombre_input in st.session_state.juego['vistos']:
+            st.error(f"⚠️ ¡Trampa detectada! {nombre_input}, ya viste tu rol y no puedes volver a verlo.")
+        else:
+            # Mostrar info y marcar como visto
+            if nombre_input in st.session_state.juego['impostores']:
+                st.error(f"ERES EL IMPOSTOR 😈. Pista: {st.session_state.juego['pista']}")
             else:
-                st.success(f"ERES CIVIL 😊")
-                st.write(f"Palabra secreta: **{st.session_state.juego['palabra']}**")
-    
-    st.divider()
-    if st.button("Fase de Votación 🗳️"):
-        st.session_state.juego['fase'] = 'votacion'
-        st.rerun()
+                st.success(f"ERES CIVIL 😊. Palabra: {st.session_state.juego['palabra']}")
+            
+            st.session_state.juego['vistos'].add(nombre_input)
+            st.info("Memoriza tu palabra y cierra esta pestaña o dale el móvil al siguiente.")
 
+    # Mostrar cuánta gente falta por ver
+    faltan = len(st.session_state.juego['jugadores']) - len(st.session_state.juego['vistos'])
+    st.write(f"Faltan **{faltan}** jugadores por ver su rol.")
+    
+    if faltan == 0:
+        if st.button("Todos listos - Ir a Votación 🗳️"):
+            st.session_state.start_time = time.time()
+            st.session_state.juego['fase'] = 'votacion'
+            st.rerun()
+
+# --- FASE 3: VOTACIÓN ---
 elif st.session_state.juego['fase'] == 'votacion':
-    st.header("🗳️ Votación")
+    st.header("🗳️ Fase de Votación")
+    # Lógica del reloj de 5 min (como ya la teníamos)
+    limite = 5 * 60
+    ahora = time.time()
+    restante = int(limite - (ahora - st.session_state.start_time))
     
-    # Temporizador visual (Streamlit no tiene uno nativo dinámico fácil, usamos un placeholder)
-    st.warning("Tienen 5 minutos para debatir.")
-    
-    if st.button("Revelar Identidades"):
-        st.write("### Los Impostores eran:")
-        for imp in st.session_state.juego['impostores']:
-            st.write(f"- **{imp}**")
-        st.write(f"La palabra era: **{st.session_state.juego['palabra']}**")
-        
-        if st.button("Jugar otra vez"):
+    if restante > 0:
+        m, s = divmod(restante, 60)
+        st.metric("Tiempo de debate", f"{m:02d}:{s:02d}")
+        if st.button("Actualizar tiempo"): st.rerun()
+    else:
+        st.error("¡TIEMPO AGOTADO!")
+
+    if st.button("Revelar quiénes eran"):
+        st.write(f"Impostores: {st.session_state.juego['impostores']}")
+        if st.button("Nueva partida"):
             st.session_state.juego['fase'] = 'config'
             st.rerun()
