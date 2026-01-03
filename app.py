@@ -165,6 +165,9 @@ DATABASE = [
     {"palabra": "Libro", "pista": "Páginas", "cat": "Objetos"},
     {"palabra": "Escalera", "pista": "Peldaño", "cat": "Objetos"}
 ]
+
+
+# --- LÓGICA DE SINCRONIZACIÓN GLOBAL ---
 @st.cache_resource
 def estado_servidor():
     return {
@@ -192,9 +195,7 @@ with st.sidebar:
 
 st.title("🕵️ ¿Quién es el Impostor?")
 
-# --- FLUJO DEL JUEGO ---
-
-# 1. PANTALLA DE ESPERA O CONFIGURACIÓN
+# --- 1. PANTALLA DE ESPERA O CONFIGURACIÓN ---
 if not server['activo']:
     if soy_host:
         st.subheader("Configura la partida")
@@ -221,58 +222,65 @@ if not server['activo']:
     else:
         st.info("⌛ Esperando a que el Host inicie la partida...")
         st.image("https://media.giphy.com/media/uIJBFZoOaifHf52MER/giphy.gif")
-        time.sleep(2)
+        time.sleep(3)
         st.rerun()
 
-# 2. PANTALLA DE REVELAR ROL
+# --- 2. PANTALLA DE REVELAR ROL ---
 elif server['fase'] == 'revelar':
     st.header("🔑 Revela tu identidad")
-    nombre_usuario = st.text_input("Tu nombre exacto:").strip()
     
-    if st.button("Ver mi rol"):
-        if nombre_usuario not in server['jugadores']:
-            st.warning("No estás en la lista.")
-        elif nombre_usuario in server['vistos']:
-            st.error("¡Ya viste tu rol! No hagas trampa.")
-        else:
-            if nombre_usuario in server['impostores']:
-                st.error(f"ERES EL IMPOSTOR 😈. Pista: {server['pista']}")
-            else:
-                st.success(f"ERES CIVIL 😊. Palabra: {server['palabra']}")
-            server['vistos'].append(nombre_usuario)
-            st.rerun()
+    # Usamos un formulario para que no se recargue la página mientras escribes
+    with st.form("form_revelar"):
+        nombre_usuario = st.text_input("Escribe tu nombre exacto:").strip()
+        boton_ver = st.form_submit_button("Ver mi rol")
 
-    st.write(f"Jugadores listos: **{len(server['vistos'])} / {len(server['jugadores'])}**")
+    if boton_ver:
+        if nombre_usuario not in server['jugadores']:
+            st.warning("Ese nombre no está en la lista de esta partida.")
+        elif nombre_usuario in server['vistos']:
+            st.error(f"⚠️ {nombre_usuario}, ¡Ya viste tu rol! No se permite doble chequeo.")
+        else:
+            # Mostramos el resultado inmediatamente
+            if nombre_usuario in server['impostores']:
+                st.error(f"ERES EL IMPOSTOR 😈. Tu pista es: **{server['pista']}**")
+            else:
+                st.success(f"ERES CIVIL 😊. Tu palabra es: **{server['palabra']}**")
+            
+            # Guardamos en la lista de vistos
+            server['vistos'].append(nombre_usuario)
+            st.info("Memoriza tu rol y NO cierres este mensaje hasta estar seguro.")
+
+    st.divider()
+    st.write(f"Jugadores que ya vieron su rol: **{len(server['vistos'])} / {len(server['jugadores'])}**")
     
-    # BOTÓN DE SIGUIENTE (SOLO PARA EL HOST CUANDO TODOS ESTÁN LISTOS)
+    # Solo el Host ve el botón de Siguiente
     if soy_host and len(server['vistos']) >= len(server['jugadores']):
         if st.button("Siguiente: ¿Quién empieza? 🎲"):
             server['quien_empieza'] = random.choice(server['jugadores'])
             server['fase'] = 'debate'
             st.rerun()
-    elif len(server['vistos']) < len(server['jugadores']):
-        st.caption("Esperando a que todos vean su rol...")
-        time.sleep(2)
+    else:
+        # Los jugadores normales se auto-actualizan para ver si el Host cambió de fase
+        time.sleep(3)
         st.rerun()
 
-# 3. PANTALLA DE DEBATE Y TURNO
+# --- 3. PANTALLA DE DEBATE ---
 elif server['fase'] == 'debate':
     st.header("🗣️ ¡A Debatir!")
     st.balloons()
     st.markdown(f"### 🎤 Empieza hablando: **{server['quien_empieza']}**")
-    st.write("Cada uno debe dar su descripción. Cuando estén listos, el Host iniciará la votación.")
     
     if soy_host:
-        if st.button("Ir a Votación 🗳️"):
+        if st.button("Iniciar Temporizador de Votación 🗳️"):
             server['fase'] = 'votacion'
             server['start_time'] = time.time()
             st.rerun()
     else:
-        st.info("⌛ El Host iniciará el temporizador cuando todos hayan hablado.")
-        time.sleep(3)
+        st.info("⌛ El Host activará la votación pronto...")
+        time.sleep(4)
         st.rerun()
 
-# 4. PANTALLA DE VOTACIÓN (TEMPORIZADOR)
+# --- 4. PANTALLA DE VOTACIÓN ---
 elif server['fase'] == 'votacion':
     st.header("🗳️ Tiempo de Votación")
     
@@ -282,12 +290,12 @@ elif server['fase'] == 'votacion':
     if restante > 0:
         mins, secs = divmod(restante, 60)
         st.metric("Reloj de debate", f"{mins:02d}:{secs:02d}")
-        time.sleep(1)
+        time.sleep(2)
         st.rerun()
     else:
         st.error("🚨 ¡TIEMPO AGOTADO!")
 
     if soy_host:
-        if st.button("Revelar Impostores"):
-            st.subheader(f"Los impostores eran: {', '.join(server['impostores'])}")
-            st.write(f"La palabra secreta era: **{server['palabra']}**")
+        if st.button("Revelar Identidades Finales"):
+            st.subheader(f"Impostores: {', '.join(server['impostores'])}")
+            st.write(f"Palabra: **{server['palabra']}**")
